@@ -28,13 +28,6 @@ public class LocomotionExecuter : MonoBehaviour
         InitializeInputSystem();
     }
 
-
-    private void Update()
-    {
-        
-    }
-
-
     private void InitializeInputSystem()
     {
         inputActions ??= new();
@@ -100,19 +93,21 @@ public class LocomotionExecuter : MonoBehaviour
         float interpolationIndex = Mathf.Clamp01((Time.time - lastCustomInterpolationStartTime) / lastCustomInterpolationdeltaTime);
         Vector3 interpolatedPosition = Vector3.Lerp(solver.initialPosition, solver.transientPosition, interpolationIndex); 
         Quaternion interpolatedRotation = Quaternion.Lerp(solver.initialRotation, solver.transientRotation, interpolationIndex);
-
-
-        
         solver.transform.SetPositionAndRotation(interpolatedPosition, interpolatedRotation);
     }
-
-
-
 
     private void OnDisable()
     {
         DeInitializeInputSystem();
     }
-
-
 }
+
+#region Abstractions
+public struct OverlapResolutionReport
+{
+    public Collider[] colliders;
+    public Vector3 overlapDirection;
+    public float correctionMagnitude;
+}
+
+#endregion

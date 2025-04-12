@@ -3,6 +3,8 @@ using Pkay.Input;
 using Pkay.Utils;
 using UnityEngine.InputSystem;
 using KinematicCharacterController;
+using System;
+using UnityEngine.Pool;
 [RequireComponent(typeof(Rigidbody) , typeof(CapsuleCollider))]
 public class LocomotionSolver : MonoBehaviour
 {
@@ -27,6 +29,7 @@ public class LocomotionSolver : MonoBehaviour
     CharacterGroundingReport lastGroundingReport;
     public float probingDistance;
     public LayerMask groundMask;
+    Collider[] buffer = null;
     private void Awake()
     {
         col ??= this.GetComponent<CapsuleCollider>();
@@ -61,8 +64,53 @@ public class LocomotionSolver : MonoBehaviour
 
     public void UpdatePhase_1(float deltaTime)
     {
-        GenerateGroundingReport(deltaTime);
+        SolveOverlapResolution(transientPosition , transientRotation , true);
     }
+
+
+
+    private OverlapResolutionReport SolveOverlapResolution(Vector3 atPosition, Quaternion atRotation, bool overridePosition = false)
+    {
+        OverlapResolutionReport report = default(OverlapResolutionReport);
+        Collider[] overlapColliders = InternalCastCharacterVolumeOverlap();
+        report.colliders = overlapColliders;
+        if (overlapColliders == null)
+            return report;
+        Vector3 finalDepenetrationVector = Vector3.zero;
+        float finalMagnitude = 0.0f;
+        for(int i = 0; i < overlapColliders.Length; i++)
+        {   
+            Vector3 depenetrationVector = Vector3.zero;
+            float distance = 0.0f;
+
+            if (overlapColliders[i] == null || overlapColliders[i] == col)
+                continue;
+
+            if (Physics.ComputePenetration(
+                col,
+                transientPosition,
+                transientRotation,
+                overlapColliders[i],
+                overlapColliders[i].transform.position,
+                overlapColliders[i].transform.rotation,
+                out depenetrationVector,
+                out distance
+                ))
+            {
+                finalDepenetrationVector += depenetrationVector;
+                finalMagnitude += distance;
+            }
+        }
+
+        report.overlapDirection = finalDepenetrationVector.normalized;
+        report.correctionMagnitude = finalMagnitude;
+        if (overridePosition)
+        {
+            transientPosition += report.overlapDirection * report.correctionMagnitude;
+        }
+        return report;
+    }
+
 
     public void UpdatePhase_2(float deltaTime)
     {
@@ -73,10 +121,24 @@ public class LocomotionSolver : MonoBehaviour
 
 
 
+
+
     private void SolvePosition(float deltaTime)
     {
         Vector3 HorizontalVel = SolveHorizontalVelocity(deltaTime); // Caution! ==> Velocity is not from Capsule Center
-        transientPosition += HorizontalVel;
+        
+        #region Horizontal Velocity Overlap Check
+        ///Checking for if applied the velocity horizontally, will there be an overlap ??
+        ///If there will be then refrain from applying to that position
+        ///Otherwise simply apply the velocity;
+        Vector3 temp_transientPosition = transientPosition + HorizontalVel;
+        OverlapResolutionReport report = SolveOverlapResolution(temp_transientPosition, transientRotation);
+        Utils.Print($"{Vector3.Dot(HorizontalVel.normalized, report.overlapDirection.normalized)}", Color.white, PrintStream.LOG, true);
+        if (Vector3.Dot(HorizontalVel.normalized, report.overlapDirection.normalized) >= 0)
+        {
+            transientPosition += HorizontalVel;
+        }
+        #endregion
     }
 
     private Vector3 SolveHorizontalVelocity(float deltaTime)
@@ -111,32 +173,18 @@ public class LocomotionSolver : MonoBehaviour
     }
 
 
-    private void GenerateGroundingReport(float deltaTime)
+    #region Internal
+    private Collider[] InternalCastCharacterVolumeOverlap()
     {
-        InternalGroundSweep(ref this.currGroundingReport);
-        lastGroundingReport = this.currGroundingReport;
+        buffer??= new Collider[10];
+        Physics.OverlapCapsuleNonAlloc(Collider_GetTopHemisphereCenter(),Collider_GetBottomHemisphereCenter(),col.radius,buffer);
+        return buffer;
+
     }
+    #endregion
 
 
-    private void InternalGroundSweep(ref CharacterGroundingReport report)
-    {
-        Vector3 probingPosition = transientPosition;
-        Quaternion atRotation = transientRotation;
-        Vector3 sweepDirection = this.transform.TransformDirection(Vector3.down);
-        float probingDistance = this.probingDistance;
 
-        RaycastHit hit = default;
-        Vector3 probingCenterOffset = Vector3.up * 0.1f;
-        // ------------------- CASTING CHARACTER'S VOLUME ------------------
-        report.FoundAnyGround = Physics.CapsuleCast(Collider_GetTopHemisphereCenter(), Collider_GetBottomHemisphereCenter()+ probingCenterOffset, col.radius, sweepDirection, out hit ,probingDistance, groundMask);
-        report.IsStableOnGround = true;
-        report.SnappingPrevented = true;
-        report.GroundNormal = hit.normal;
-        report.InnerGroundNormal = hit.normal;
-        report.OuterGroundNormal = Vector3.zero;
-        report.GroundCollider = hit.collider;
-        report.GroundPoint = hit.point; 
-    }
 
     private void OnDrawGizmos()
     {
