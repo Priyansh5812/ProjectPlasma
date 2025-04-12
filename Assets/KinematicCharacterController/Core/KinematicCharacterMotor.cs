@@ -66,6 +66,8 @@ namespace KinematicCharacterController
     /// <summary>
     /// Contains all the information for the motor's grounding status
     /// </summary>
+    /// 
+    [System.Serializable]
     public struct CharacterGroundingReport
     {
         public bool FoundAnyGround;

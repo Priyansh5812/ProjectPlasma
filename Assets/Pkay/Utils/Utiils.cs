@@ -13,7 +13,6 @@ namespace Pkay.Utils
     public struct Utils
     {
 
-
         public static void Print(string message, Color color, PrintStream stream = PrintStream.LOG, bool bold = false, Object context = null)
         {
             if (bold)
@@ -51,7 +50,6 @@ namespace Pkay.Utils
 
 
         }
-
-
     }
+
 }
