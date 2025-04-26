@@ -8,3 +8,9 @@
 /.vscode
 *.csproj
 *.csproj
+/UserSettings
+
+/UserSettings
+Assembly-CSharp.csproj
+*.csproj
+/UserSettings
