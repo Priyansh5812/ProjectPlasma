@@ -4,7 +4,8 @@ using Pkay.Utils;
 using UnityEngine.InputSystem;
 using KinematicCharacterController;
 using System;
-using UnityEngine.Pool;
+using System.Collections.Generic;
+using Unity.VisualScripting;
 [RequireComponent(typeof(Rigidbody) , typeof(CapsuleCollider))]
 public class LocomotionSolver : MonoBehaviour
 {
@@ -24,12 +25,20 @@ public class LocomotionSolver : MonoBehaviour
     public float accelaration = 0f;
     public float deaccelaration = 1f;
     public float maxSpeed = 0f;
-    [Header("GroundProbing")]
-    [SerializeField] CharacterGroundingReport currGroundingReport;
-    CharacterGroundingReport lastGroundingReport;
+    public bool is2D = false;
+    public bool wasObstructed = false;
+    [Header("Overlap Resolution")]
+    [SerializeField] List<OverlapResolutionReport> currOverlapReports;
+    [Header("Volume Sweep")]
+    [SerializeField] List<CharacterSweepReport> currSweepReports;
+
     public float probingDistance;
     public LayerMask groundMask;
     Collider[] buffer = null;
+    RaycastHit[] hits = null;
+
+    
+
     private void Awake()
     {
         col ??= this.GetComponent<CapsuleCollider>();
@@ -46,6 +55,9 @@ public class LocomotionSolver : MonoBehaviour
         rb.useGravity = false;
         rb.freezeRotation = true;
         rb.isKinematic = true;
+        rb.detectCollisions = false;
+
+
     }
 
 
@@ -64,51 +76,29 @@ public class LocomotionSolver : MonoBehaviour
 
     public void UpdatePhase_1(float deltaTime)
     {
-        SolveOverlapResolution(transientPosition , transientRotation , true);
+        SolveOverlapResolution(transientPosition , transientRotation);
     }
 
 
 
-    private OverlapResolutionReport SolveOverlapResolution(Vector3 atPosition, Quaternion atRotation, bool overridePosition = false)
-    {
-        OverlapResolutionReport report = default(OverlapResolutionReport);
-        Collider[] overlapColliders = InternalCastCharacterVolumeOverlap();
-        report.colliders = overlapColliders;
-        if (overlapColliders == null)
-            return report;
-        Vector3 finalDepenetrationVector = Vector3.zero;
-        float finalMagnitude = 0.0f;
-        for(int i = 0; i < overlapColliders.Length; i++)
-        {   
-            Vector3 depenetrationVector = Vector3.zero;
-            float distance = 0.0f;
 
-            if (overlapColliders[i] == null || overlapColliders[i] == col)
-                continue;
+    private void SolveOverlapResolution(Vector3 atPosition, Quaternion atRotation)
+    {   
+        // current Overlap Reports are updated
+        GenOverlapResolutionReport(atPosition, atRotation);
 
-            if (Physics.ComputePenetration(
-                col,
-                transientPosition,
-                transientRotation,
-                overlapColliders[i],
-                overlapColliders[i].transform.position,
-                overlapColliders[i].transform.rotation,
-                out depenetrationVector,
-                out distance
-                ))
+        foreach (var i in currOverlapReports)
+        {   if (is2D)
             {
-                finalDepenetrationVector += depenetrationVector;
-                finalMagnitude += distance;
+                Vector3 restrictionDir = i.overlapDirection;
+                restrictionDir.z = 0.0f;
+                transientPosition += restrictionDir * i.correctionMagnitude;
+            }
+            else 
+            {
+              transientPosition += i.overlapDirection * i.correctionMagnitude;
             }
         }
-
-        report.overlapDirection = finalDepenetrationVector.normalized;
-        report.correctionMagnitude = finalMagnitude;
-        if (overridePosition)
-        {
-            transientPosition += report.overlapDirection * report.correctionMagnitude;
-        }
-        return report;
     }
 
 
@@ -117,28 +107,35 @@ public class LocomotionSolver : MonoBehaviour
         SolvePosition(deltaTime);
     }
 
-
-
-
-
-
-
     private void SolvePosition(float deltaTime)
     {
         Vector3 HorizontalVel = SolveHorizontalVelocity(deltaTime); // Caution! ==> Velocity is not from Capsule Center
+        GenCharacterSweepReports(HorizontalVel.normalized, HorizontalVel.magnitude , ~(groundMask)); // From horizontal Sweep remove the groundMask.
         
-        #region Horizontal Velocity Overlap Check
-        ///Checking for if applied the velocity horizontally, will there be an overlap ??
-        ///If there will be then refrain from applying to that position
-        ///Otherwise simply apply the velocity;
-        Vector3 temp_transientPosition = transientPosition + HorizontalVel;
-        OverlapResolutionReport report = SolveOverlapResolution(temp_transientPosition, transientRotation);
-        Utils.Print($"{Vector3.Dot(HorizontalVel.normalized, report.overlapDirection.normalized)}", Color.white, PrintStream.LOG, true);
-        if (Vector3.Dot(HorizontalVel.normalized, report.overlapDirection.normalized) >= 0)
+        if (currSweepReports.Count > 0)
+        {
+
+            if (!wasObstructed)
+            {
+                CharacterSweepReport closest = currSweepReports[0];
+                foreach (var i in currSweepReports)
+                {
+                    closest = i.obs_Distance < closest.obs_Distance ? i : closest;
+                }
+
+                transientPosition += HorizontalVel.normalized * closest.obs_Distance;
+            }
+
+            wasObstructed = true;
+                   
+        }
+        else
         {
             transientPosition += HorizontalVel;
+            wasObstructed = false;
         }
-        #endregion
+
+        Debug.DrawRay(transientPosition, HorizontalVel,Color.blue);
     }
 
     private Vector3 SolveHorizontalVelocity(float deltaTime)
@@ -146,7 +143,7 @@ public class LocomotionSolver : MonoBehaviour
         float horizontalInput = inputActions.Player.Move.ReadValue<float>();
         Vector3 resVel;
         moveDirection = this.transform.TransformDirection(Vector3.right * horizontalInput);
-
+        
         if (moveDirection != Vector3.zero)
         {
             finalSpeed = initialSpeed + accelaration * deltaTime;
@@ -162,24 +159,103 @@ public class LocomotionSolver : MonoBehaviour
             //transientPosition += lastmoveDirection * finalSpeed * deltaTime; // OLD CODE
             resVel = lastmoveDirection * finalSpeed * deltaTime;
         }
-
         initialSpeed = finalSpeed;
         return resVel;
     }
 
-    private void SolveVerticalVelocity()
-    { 
-        
+    private List<OverlapResolutionReport> GenOverlapResolutionReport(Vector3 atPosition, Quaternion atRotation)
+    {
+        currOverlapReports ??= new List<OverlapResolutionReport>();
+        currOverlapReports.Clear();
+        Collider[] overlapColliders = InternalOverlapCharacterVolume();
+        if (overlapColliders == null)
+            return currOverlapReports;
+        for (int i = 0; i < overlapColliders.Length; i++)
+        {
+            Vector3 direction = Vector3.zero;
+            float correctionMag = 0.0f;
+
+            if (overlapColliders[i] == null || overlapColliders[i] == col)
+                continue;
+
+            if (Physics.ComputePenetration(
+                col,
+                atPosition,
+                atRotation,
+                overlapColliders[i],
+                overlapColliders[i].transform.position,
+                overlapColliders[i].transform.rotation,
+                out direction,
+                out correctionMag
+                ))
+            {
+                // If correction Magnitude is not a '0.0' then consider that as a successful overlap
+                if (correctionMag != 0f)
+                {
+                    OverlapResolutionReport report = new(overlapColliders[i], direction, correctionMag);
+                    currOverlapReports.Add(report);
+                }
+            }
+        }
+        return currOverlapReports;
     }
 
+    private List<CharacterSweepReport> GenCharacterSweepReports(Vector3 direction , float maxDistance , LayerMask sweepMask)
+    {
+        currSweepReports ??= new List<CharacterSweepReport>();
+        currSweepReports.Clear();
+
+        if(direction == Vector3.zero) // Invalid Direction to cast into...
+            return currSweepReports;
+        
+        RaycastHit[] hits = InternalCastCharacterVolume(direction, maxDistance , sweepMask); // Get all the Colliders
+        if(hits == null)
+            return currSweepReports;
+        for (int i = 0; i < hits.Length; i++)
+        {   
+            if (hits[i].collider != null && hits[i].collider != col) // Not a valid collider
+            {
+
+                if (hits[i].point == Vector3.zero) // Invalid contact. Redo scan...
+                    continue;
+
+                CharacterSweepReport report = new CharacterSweepReport();
+                report.otherCollider = hits[i].collider;
+                report.otherNormal = hits[i].normal;
+                report.contactPoint = hits[i].point;
+                report.obs_Distance = hits[i].distance;
+                currSweepReports.Add(report);
+            }
+        }
+
+        return currSweepReports;
+    }
 
     #region Internal
-    private Collider[] InternalCastCharacterVolumeOverlap()
+    private Collider[] InternalOverlapCharacterVolume()
     {
         buffer??= new Collider[10];
+
+        for (int i = 0; i < 10; i++)
+        {
+            buffer[i] = null;
+        }
+
         Physics.OverlapCapsuleNonAlloc(Collider_GetTopHemisphereCenter(),Collider_GetBottomHemisphereCenter(),col.radius,buffer);
         return buffer;
+    }
 
+    private RaycastHit[] InternalCastCharacterVolume(Vector3 direction, float maxDistance,LayerMask sweepmask)
+    {   
+        hits ??= new RaycastHit[10];
+
+        for (int i = 0; i < 10; i++)
+        {
+            hits[i] = default;
+        }
+
+        int totalHits = Physics.CapsuleCastNonAlloc(Collider_GetTopHemisphereCenter(), Collider_GetBottomHemisphereCenter(), col.radius, direction, hits, maxDistance, sweepmask);
+        return hits;
     }
     #endregion
 

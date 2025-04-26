@@ -103,11 +103,34 @@ public class LocomotionExecuter : MonoBehaviour
 }
 
 #region Abstractions
+[System.Serializable]
 public struct OverlapResolutionReport
 {
-    public Collider[] colliders;
+    public Collider collider;
     public Vector3 overlapDirection;
     public float correctionMagnitude;
+    public OverlapResolutionReport(Collider collider , Vector3 overlapDirection, float correctionMagnitude)
+    {
+        this.collider = collider;
+        this.overlapDirection = overlapDirection;
+        this.correctionMagnitude = correctionMagnitude;
+    }
+}
+[System.Serializable]
+public struct CharacterSweepReport
+{
+    public Collider otherCollider;
+    public Vector3 otherNormal;
+    public Vector3 contactPoint;
+    public float obs_Distance;
+
+    public CharacterSweepReport(Collider otherCollider, Vector3 normal, Vector3 contactPoint, float ObstructionDistance)
+    {
+        this.otherCollider = otherCollider;
+        this.otherNormal = normal;
+        this.contactPoint = contactPoint;
+        this.obs_Distance = ObstructionDistance;
+    }
 }
 
 #endregion
