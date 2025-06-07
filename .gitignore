@@ -14,3 +14,7 @@
 Assembly-CSharp.csproj
 *.csproj
 /UserSettings
+*.csproj
+*.csproj
+*.csproj
+Assembly-CSharp.csproj

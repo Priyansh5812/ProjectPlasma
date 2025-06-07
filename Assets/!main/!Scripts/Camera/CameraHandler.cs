@@ -8,8 +8,8 @@ public class CameraHandler : MonoBehaviour
     [SerializeField] float followSpeed;
     private void Start()
     {
-        this.transform.LookAt(Target);
         this.transform.position = Target.position + Target.TransformDirection(localDirection) * distance;
+        this.transform.LookAt(Target);
     }
 
     private void Update()

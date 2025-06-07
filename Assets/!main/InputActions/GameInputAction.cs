@@ -150,7 +150,7 @@ namespace Pkay.Input
                     ""name"": """",
                     ""id"": ""aa2f69f8-e2b4-412e-a016-0279718fa142"",
                     ""path"": ""<Keyboard>/space"",
-                    ""interactions"": ""Press"",
+                    ""interactions"": """",
                     ""processors"": """",
                     ""groups"": """",
                     ""action"": ""Jump"",

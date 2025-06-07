@@ -3,7 +3,7 @@ using Pkay.Utils;
 using UnityEngine;
 
 
-[RequireComponent(typeof(Rigidbody), typeof(CapsuleCollider))]
+[RequireComponent(typeof(CapsuleCollider))]
 public class LocomotionExecuter : MonoBehaviour
 {
     private LocomotionSolver solver;
